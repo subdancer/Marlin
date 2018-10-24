@@ -25,7 +25,7 @@
 
 #include "../../Marlin.h"
 
-#if ENABLED(FWRETRACT)
+#if ENABLED(FWRETRACT) && ENABLED(FWRETRACT_AUTORETRACT)
   #include "../../feature/fwretract.h"
 #endif
 
@@ -37,6 +37,10 @@
 
 extern float destination[XYZE];
 
+#if ENABLED(G0_FEEDRATE)
+  float saved_g0_feedrate_mm_s =  MMM_TO_MMS(DEFAULT_G0_FEEDRATE);
+#endif
+
 #if ENABLED(NO_MOTION_BEFORE_HOMING)
   #define G0_G1_CONDITION !axis_unhomed_error(parser.seen('X'), parser.seen('Y'), parser.seen('Z'))
 #else
@@ -47,21 +51,34 @@ extern float destination[XYZE];
  * G0, G1: Coordinated movement of X Y Z E axes
  */
 void GcodeSuite::G0_G1(
-  #if IS_SCARA
+  #if IS_SCARA || ENABLED(G0_FEEDRATE)
     bool fast_move/*=false*/
   #endif
 ) {
+  #if ENABLED(G0_FEEDRATE)
+    float saved_g1_feedrate_mm_s;
+  #endif
+
   if (IsRunning() && G0_G1_CONDITION) {
+
+    #if ENABLED(G0_FEEDRATE)
+      if (fast_move) {
+        // Save standard feedrate before setting feedrate to fast/g0
+        saved_g1_feedrate_mm_s = feedrate_mm_s;
+        feedrate_mm_s = saved_g0_feedrate_mm_s;
+      }
+    #endif
+
     get_destination_from_command(); // For X Y Z E F
 
-    #if ENABLED(FWRETRACT)
+    #if ENABLED(FWRETRACT) && ENABLED(FWRETRACT_AUTORETRACT)
 
       if (MIN_AUTORETRACT <= MAX_AUTORETRACT) {
         // When M209 Autoretract is enabled, convert E-only moves to firmware retract/recover moves
         if (fwretract.autoretract_enabled && parser.seen('E') && !(parser.seen('X') || parser.seen('Y') || parser.seen('Z'))) {
           const float echange = destination[E_AXIS] - current_position[E_AXIS];
           // Is this a retract or recover move?
-          if (WITHIN(FABS(echange), MIN_AUTORETRACT, MAX_AUTORETRACT) && fwretract.retracted[active_extruder] == (echange > 0.0)) {
+          if (WITHIN(ABS(echange), MIN_AUTORETRACT, MAX_AUTORETRACT) && fwretract.retracted[active_extruder] == (echange > 0.0)) {
             current_position[E_AXIS] = destination[E_AXIS]; // Hide a G1-based retract/recover from calculations
             sync_plan_position_e();                         // AND from the planner
             return fwretract.retract(echange < 0.0);        // Firmware-based retract/recover (double-retract ignored)
@@ -77,14 +94,22 @@ void GcodeSuite::G0_G1(
       prepare_move_to_destination();
     #endif
 
+    #if ENABLED(G0_FEEDRATE)
+      // save G0 feedrate, and restore standard feedrate as soon as possible
+      if (fast_move) {
+        saved_g0_feedrate_mm_s = feedrate_mm_s;
+        feedrate_mm_s = saved_g1_feedrate_mm_s;
+      }
+    #endif
+
     #if ENABLED(NANODLP_Z_SYNC)
       #if ENABLED(NANODLP_ALL_AXIS)
-        #define _MOVE_SYNC true                 // For any move wait and output sync message
+        #define _MOVE_SYNC parser.seenval('X') || parser.seenval('Y') || parser.seenval('Z')  // For any move wait and output sync message
       #else
         #define _MOVE_SYNC parser.seenval('Z')  // Only for Z move
       #endif
       if (_MOVE_SYNC) {
-        stepper.synchronize();
+        planner.synchronize();
         SERIAL_ECHOLNPGM(MSG_Z_MOVE_COMP);
       }
     #endif

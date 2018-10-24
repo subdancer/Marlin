@@ -29,6 +29,12 @@
 #include "../../module/planner.h"
 #include "../../module/temperature.h"
 
+#if ENABLED(DELTA)
+  #include "../../module/delta.h"
+#elif ENABLED(SCARA)
+  #include "../../module/scara.h"
+#endif
+
 #if N_ARC_CORRECTION < 1
   #undef N_ARC_CORRECTION
   #define N_ARC_CORRECTION 1
@@ -80,8 +86,9 @@ void plan_arc(
   if (angular_travel == 0 && current_position[p_axis] == cart[p_axis] && current_position[q_axis] == cart[q_axis])
     angular_travel = RADIANS(360);
 
-  const float mm_of_travel = HYPOT(angular_travel * radius, FABS(linear_travel));
-  if (mm_of_travel < 0.001) return;
+  const float flat_mm = radius * angular_travel,
+              mm_of_travel = linear_travel ? HYPOT(flat_mm, linear_travel) : ABS(flat_mm);
+  if (mm_of_travel < 0.001f) return;
 
   uint16_t segments = FLOOR(mm_of_travel / (MM_PER_ARC_SEGMENT));
   if (segments == 0) segments = 1;
@@ -113,20 +120,24 @@ void plan_arc(
    * This is important when there are successive arc motions.
    */
   // Vector rotation matrix values
-  float arc_target[XYZE];
+  float raw[XYZE];
   const float theta_per_segment = angular_travel / segments,
               linear_per_segment = linear_travel / segments,
               extruder_per_segment = extruder_travel / segments,
               sin_T = theta_per_segment,
-              cos_T = 1 - 0.5 * sq(theta_per_segment); // Small angle approximation
+              cos_T = 1 - 0.5f * sq(theta_per_segment); // Small angle approximation
 
   // Initialize the linear axis
-  arc_target[l_axis] = current_position[l_axis];
+  raw[l_axis] = current_position[l_axis];
 
   // Initialize the extruder axis
-  arc_target[E_AXIS] = current_position[E_AXIS];
+  raw[E_AXIS] = current_position[E_AXIS];
 
   const float fr_mm_s = MMS_SCALED(feedrate_mm_s);
+
+  #if ENABLED(SCARA_FEEDRATE_SCALING)
+    const float inv_duration = fr_mm_s / MM_PER_ARC_SEGMENT;
+  #endif
 
   millis_t next_idle_ms = millis() + 200UL;
 
@@ -165,24 +176,40 @@ void plan_arc(
       r_Q = -offset[0] * sin_Ti - offset[1] * cos_Ti;
     }
 
-    // Update arc_target location
-    arc_target[p_axis] = center_P + r_P;
-    arc_target[q_axis] = center_Q + r_Q;
-    arc_target[l_axis] += linear_per_segment;
-    arc_target[E_AXIS] += extruder_per_segment;
+    // Update raw location
+    raw[p_axis] = center_P + r_P;
+    raw[q_axis] = center_Q + r_Q;
+    raw[l_axis] += linear_per_segment;
+    raw[E_AXIS] += extruder_per_segment;
 
-    clamp_to_software_endstops(arc_target);
+    clamp_to_software_endstops(raw);
 
-    planner.buffer_line_kinematic(arc_target, fr_mm_s, active_extruder);
+    #if HAS_LEVELING && !PLANNER_LEVELING
+      planner.apply_leveling(raw);
+    #endif
+
+    if (!planner.buffer_line(raw, fr_mm_s, active_extruder, MM_PER_ARC_SEGMENT
+      #if ENABLED(SCARA_FEEDRATE_SCALING)
+        , inv_duration
+      #endif
+    ))
+      break;
   }
 
   // Ensure last segment arrives at target location.
-  planner.buffer_line_kinematic(cart, fr_mm_s, active_extruder);
+  COPY(raw, cart);
 
-  // As far as the parser is concerned, the position is now == target. In reality the
-  // motion control system might still be processing the action and the real tool position
-  // in any intermediate location.
-  set_current_from_destination();
+  #if HAS_LEVELING && !PLANNER_LEVELING
+    planner.apply_leveling(raw);
+  #endif
+
+  planner.buffer_line(raw, fr_mm_s, active_extruder, MM_PER_ARC_SEGMENT
+    #if ENABLED(SCARA_FEEDRATE_SCALING)
+      , inv_duration
+    #endif
+  );
+
+  COPY(current_position, raw);
 } // plan_arc
 
 /**
@@ -225,19 +252,20 @@ void GcodeSuite::G2_G3(const bool clockwise) {
       relative_mode = relative_mode_backup;
     #endif
 
-    float arc_offset[2] = { 0.0, 0.0 };
+    float arc_offset[2] = { 0, 0 };
     if (parser.seenval('R')) {
       const float r = parser.value_linear_units(),
                   p1 = current_position[X_AXIS], q1 = current_position[Y_AXIS],
                   p2 = destination[X_AXIS], q2 = destination[Y_AXIS];
       if (r && (p2 != p1 || q2 != q1)) {
-        const float e = clockwise ^ (r < 0) ? -1 : 1,           // clockwise -1/1, counterclockwise 1/-1
-                    dx = p2 - p1, dy = q2 - q1,                 // X and Y differences
-                    d = HYPOT(dx, dy),                          // Linear distance between the points
-                    h = SQRT(sq(r) - sq(d * 0.5)),              // Distance to the arc pivot-point
-                    mx = (p1 + p2) * 0.5, my = (q1 + q2) * 0.5, // Point between the two points
-                    sx = -dy / d, sy = dx / d,                  // Slope of the perpendicular bisector
-                    cx = mx + e * h * sx, cy = my + e * h * sy; // Pivot-point of the arc
+        const float e = clockwise ^ (r < 0) ? -1 : 1,            // clockwise -1/1, counterclockwise 1/-1
+                    dx = p2 - p1, dy = q2 - q1,                  // X and Y differences
+                    d = HYPOT(dx, dy),                           // Linear distance between the points
+                    dinv = 1/d,                                  // Inverse of d
+                    h = SQRT(sq(r) - sq(d * 0.5f)),              // Distance to the arc pivot-point
+                    mx = (p1 + p2) * 0.5f, my = (q1 + q2) * 0.5f,// Point between the two points
+                    sx = -dy * dinv, sy = dx * dinv,             // Slope of the perpendicular bisector
+                    cx = mx + e * h * sx, cy = my + e * h * sy;  // Pivot-point of the arc
         arc_offset[0] = cx - p1;
         arc_offset[1] = cy - q1;
       }
@@ -262,7 +290,7 @@ void GcodeSuite::G2_G3(const bool clockwise) {
 
       // Send the arc to the planner
       plan_arc(destination, arc_offset, clockwise);
-      refresh_cmd_timeout();
+      reset_stepper_timeout();
     }
     else {
       // Bad arguments

@@ -75,6 +75,7 @@
 
 #if ENABLED(I2CPE_ERR_ROLLING_AVERAGE)
   #define I2CPE_ERR_ARRAY_SIZE        32
+  #define I2CPE_ERR_PRST_ARRAY_SIZE   10
 #endif
 
 // Error Correction Methods
@@ -119,7 +120,7 @@ class I2CPositionEncoder {
 
     bool      homed               = false,
               trusted             = false,
-              initialised         = false,
+              initialized         = false,
               active              = false,
               invert              = false,
               ec                  = true;
@@ -132,14 +133,11 @@ class I2CPositionEncoder {
               nextErrorCountTime  = 0,
               lastErrorTime;
 
-    //double        positionMm; //calculate
-
     #if ENABLED(I2CPE_ERR_ROLLING_AVERAGE)
-      uint8_t errIdx = 0;
-      int     err[I2CPE_ERR_ARRAY_SIZE] = { 0 };
+      uint8_t errIdx = 0, errPrstIdx = 0;
+      int err[I2CPE_ERR_ARRAY_SIZE] = { 0 },
+          errPrst[I2CPE_ERR_PRST_ARRAY_SIZE] = { 0 };
     #endif
-
-    //float        positionMm; //calculate
 
   public:
     void init(const uint8_t address, const AxisEnum axis);
@@ -157,7 +155,7 @@ class I2CPositionEncoder {
         case I2CPE_ENC_TYPE_LINEAR:
           return count / encoderTicksPerUnit;
         case I2CPE_ENC_TYPE_ROTARY:
-          return (count * stepperTicks) / (encoderTicksPerUnit * planner.axis_steps_per_mm[encoderAxis]);
+          return (count * stepperTicks) / (encoderTicksPerUnit * planner.settings.axis_steps_per_mm[encoderAxis]);
       }
     }
 
@@ -201,7 +199,7 @@ class I2CPositionEncoder {
         case I2CPE_ENC_TYPE_LINEAR:
           return encoderTicksPerUnit;
         case I2CPE_ENC_TYPE_ROTARY:
-          return (int)((encoderTicksPerUnit / stepperTicks) * planner.axis_steps_per_mm[encoderAxis]);
+          return (int)((encoderTicksPerUnit / stepperTicks) * planner.settings.axis_steps_per_mm[encoderAxis]);
       }
     }
 

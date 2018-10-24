@@ -24,21 +24,29 @@
  * feature/runout.cpp - Runout sensor support
  */
 
-#include "../inc/MarlinConfig.h"
+#include "../inc/MarlinConfigPre.h"
 
 #if ENABLED(FILAMENT_RUNOUT_SENSOR)
 
-#include "../module/stepper.h"
-#include "../gcode/queue.h"
+#include "runout.h"
 
-bool filament_ran_out = false;
+FilamentRunoutSensor runout;
 
-void handle_filament_runout() {
-  if (!filament_ran_out) {
-    filament_ran_out = true;
-    enqueue_and_echo_commands_P(PSTR(FILAMENT_RUNOUT_SCRIPT));
-    stepper.synchronize();
-  }
+bool FilamentSensorBase::enabled = true,
+     FilamentSensorBase::filament_ran_out; // = false
+
+void FilamentSensorTypeBase::filament_present(const uint8_t extruder) {
+  runout.filament_present(extruder);
 }
+
+uint8_t FilamentSensorTypeEncoder::motion_detected,
+        FilamentSensorTypeEncoder::old_state; // = 0
+
+#if FILAMENT_RUNOUT_DISTANCE_MM > 0
+  float RunoutResponseDelayed::runout_distance_mm = FILAMENT_RUNOUT_DISTANCE_MM;
+  int32_t RunoutResponseDelayed::steps_since_detection[EXTRUDERS];
+#else
+  uint8_t RunoutResponseDebounced::runout_count; // = 0
+#endif
 
 #endif // FILAMENT_RUNOUT_SENSOR

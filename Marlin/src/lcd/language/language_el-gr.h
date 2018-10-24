@@ -30,8 +30,8 @@
 #ifndef LANGUAGE_EL_GR_H
 #define LANGUAGE_EL_GR_H
 
-#define MAPPER_CECF
 #define DISPLAY_CHARSET_ISO10646_GREEK
+#define CHARSIZE 2
 
 #define WELCOME_MSG                         MACHINE_NAME _UxGT(" έτοιμο.")
 #define MSG_SD_INSERTED                     _UxGT("Εισαγωγή κάρτας")
@@ -44,6 +44,7 @@
 #define MSG_AUTO_HOME_X                     _UxGT("Αρχικό σημείο X")
 #define MSG_AUTO_HOME_Y                     _UxGT("Αρχικό σημείο Y")
 #define MSG_AUTO_HOME_Z                     _UxGT("Αρχικό σημείο Z")
+#define MSG_TMC_Z_CALIBRATION               _UxGT("Βαθμονόμηση Z")
 #define MSG_LEVEL_BED_HOMING                _UxGT("Επαναφορά στο αρχικό σημείο ΧΥΖ")
 #define MSG_LEVEL_BED_WAITING               _UxGT("Κάντε κλικ για να ξεκινήσετε")
 #define MSG_LEVEL_BED_NEXT_POINT            _UxGT("Επόμενο σημείο")
@@ -51,12 +52,12 @@
 #define MSG_SET_HOME_OFFSETS                _UxGT("Ορισμός βασικών μετατοπίσεων")
 #define MSG_HOME_OFFSETS_APPLIED            _UxGT("Εφαρμόστηκαν οι μετατοπίσεις")
 #define MSG_SET_ORIGIN                      _UxGT("Ορισμός προέλευσης")
-#define MSG_PREHEAT_1                       _UxGT("Προθέρμανση PLA")
+#define MSG_PREHEAT_1                       _UxGT("Προθέρμανση " PREHEAT_1_LABEL)
 #define MSG_PREHEAT_1_N                     MSG_PREHEAT_1 _UxGT(" ")
 #define MSG_PREHEAT_1_ALL                   MSG_PREHEAT_1 _UxGT(" όλα")
 #define MSG_PREHEAT_1_BEDONLY               MSG_PREHEAT_1 _UxGT(" κλίνη")
 #define MSG_PREHEAT_1_SETTINGS              MSG_PREHEAT_1 _UxGT(" επιβεβαίωση")
-#define MSG_PREHEAT_2                       _UxGT("Προθέρμανση ABS")
+#define MSG_PREHEAT_2                       _UxGT("Προθέρμανση " PREHEAT_2_LABEL)
 #define MSG_PREHEAT_2_N                     MSG_PREHEAT_2 _UxGT(" ")
 #define MSG_PREHEAT_2_ALL                   MSG_PREHEAT_2 _UxGT(" όλα")
 #define MSG_PREHEAT_2_BEDONLY               MSG_PREHEAT_2 _UxGT(" Bed")
@@ -95,10 +96,16 @@
 #define MSG_PID_C                           _UxGT("PID-C")
 #define MSG_ACC                             _UxGT("Επιτάχυνση")
 #define MSG_JERK                            _UxGT("Vαντίδραση")
-#define MSG_VX_JERK                         _UxGT("Vαντίδραση x")
-#define MSG_VY_JERK                         _UxGT("Vαντίδραση y")
-#define MSG_VZ_JERK                         _UxGT("Vαντίδραση z")
-#define MSG_VE_JERK                         _UxGT("Vαντίδραση e")
+#if IS_KINEMATIC
+  #define MSG_VA_JERK                       _UxGT("Vαντίδραση A")
+  #define MSG_VB_JERK                       _UxGT("Vαντίδραση B")
+  #define MSG_VC_JERK                       _UxGT("Vαντίδραση C")
+#else
+  #define MSG_VA_JERK                       _UxGT("Vαντίδραση X")
+  #define MSG_VB_JERK                       _UxGT("Vαντίδραση Y")
+  #define MSG_VC_JERK                       _UxGT("Vαντίδραση Z")
+#endif
+#define MSG_VE_JERK                         _UxGT("Vαντίδραση E")
 #define MSG_VMAX                            _UxGT("Vμεγ ")
 #define MSG_VMIN                            _UxGT("Vελαχ")
 #define MSG_VTRAV_MIN                       _UxGT("Vελάχ. μετατόπιση")
@@ -107,9 +114,15 @@
 #define MSG_A_RETRACT                       _UxGT("Α-ανάσυρση")
 #define MSG_A_TRAVEL                        _UxGT("Α-μετατόπιση")
 #define MSG_STEPS_PER_MM                    _UxGT("Bήματα ανά μμ")
-#define MSG_XSTEPS                          _UxGT("Bήματα X ανά μμ")
-#define MSG_YSTEPS                          _UxGT("Bήματα Υ ανά μμ")
-#define MSG_ZSTEPS                          _UxGT("Bήματα Ζ ανά μμ")
+#if IS_KINEMATIC
+  #define MSG_ASTEPS                        _UxGT("Bήματα A ανά μμ")
+  #define MSG_BSTEPS                        _UxGT("Bήματα B ανά μμ")
+  #define MSG_CSTEPS                        _UxGT("Bήματα C ανά μμ")
+#else
+  #define MSG_ASTEPS                        _UxGT("Bήματα X ανά μμ")
+  #define MSG_BSTEPS                        _UxGT("Bήματα Y ανά μμ")
+  #define MSG_CSTEPS                        _UxGT("Bήματα Z ανά μμ")
+#endif
 #define MSG_ESTEPS                          _UxGT("Bήματα Ε ανά μμ")
 #define MSG_E1STEPS                         _UxGT("Bήματα Ε1 ανά μμ")
 #define MSG_E2STEPS                         _UxGT("Bήματα Ε2 ανά μμ")
@@ -134,9 +147,8 @@
 #define MSG_STOP_PRINT                      _UxGT("Διακοπή εκτύπωσης")
 #define MSG_CARD_MENU                       _UxGT("Εκτύπωση από SD")
 #define MSG_NO_CARD                         _UxGT("Δεν βρέθηκε SD")
-#define MSG_DWELL                           _UxGT("Αναστολή λειτουργίας...")
+#define MSG_DWELL                           _UxGT("Αναστολή λειτουργίας…")
 #define MSG_USERWAIT                        _UxGT("Αναμονή για χρήστη…")
-#define MSG_RESUMING                        _UxGT("Συνεχίζεται η εκτύπωση")
 #define MSG_PRINT_ABORTED                   _UxGT("Διακόπτεται η εκτύπωση")
 #define MSG_NO_MOVE                         _UxGT("Καμία κίνηση.")
 #define MSG_KILLED                          _UxGT("ΤΕΡΜΑΤΙΣΜΟΣ. ")
@@ -144,7 +156,7 @@
 #define MSG_CONTROL_RETRACT                 _UxGT("Ανάσυρση μμ")
 #define MSG_CONTROL_RETRACT_SWAP            _UxGT("Εναλλαγή ανάσυρσης μμ")
 #define MSG_CONTROL_RETRACTF                _UxGT("Ανάσυρση V")
-#define MSG_CONTROL_RETRACT_ZLIFT           _UxGT("Μεταπήδηση μμ")
+#define MSG_CONTROL_RETRACT_ZHOP            _UxGT("Μεταπήδηση μμ")
 #define MSG_CONTROL_RETRACT_RECOVER         _UxGT("UnRet mm")
 #define MSG_CONTROL_RETRACT_RECOVER_SWAP    _UxGT("S UnRet mm")
 #define MSG_CONTROL_RETRACT_RECOVERF        _UxGT("UnRet  V")
@@ -168,9 +180,7 @@
 #define MSG_ERR_MAXTEMP_BED                 _UxGT("Λάθος: ΜΕΓΙΣΤΗ ΘΕΡΜΟΤΗΤΑ ΚΛΙΝΗΣ")
 #define MSG_ERR_MINTEMP_BED                 _UxGT("Λάθος: ΕΛΑΧΙΣΤΗ ΘΕΡΜΟΤΗΤΑ ΚΛΙΝΗΣ")
 #define MSG_HEATING                         _UxGT("Θερμαίνεται…")
-#define MSG_HEATING_COMPLETE                _UxGT("Η θέρμανση ολοκληρώθηκε.")
-#define MSG_BED_HEATING                     _UxGT("Θέρμανση κλίνης.")
-#define MSG_BED_DONE                        _UxGT("Η κλίνη ολοκληρώθηκε.")
+#define MSG_BED_HEATING                     _UxGT("Θέρμανση κλίνης…")
 #define MSG_DELTA_CALIBRATE                 _UxGT("Βαθμονόμηση Delta")
 #define MSG_DELTA_CALIBRATE_X               _UxGT("Βαθμονόμηση X")
 #define MSG_DELTA_CALIBRATE_Y               _UxGT("Βαθμονόμηση Y")

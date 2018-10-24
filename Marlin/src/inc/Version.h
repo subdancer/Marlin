@@ -19,9 +19,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-
-#ifndef _VERSION_H_
-#define _VERSION_H_
+#pragma once
 
 #include "../core/macros.h" // for ENABLED
 
@@ -53,7 +51,7 @@
    * here we define this default string as the date where the latest release
    * version was tagged.
    */
-  #define STRING_DISTRIBUTION_DATE "2017-11-19 12:00"
+  #define STRING_DISTRIBUTION_DATE "2018-01-20"
 
   /**
    * Required minimum Configuration.h and Configuration_adv.h file versions.
@@ -97,5 +95,3 @@
   #define WEBSITE_URL "http://marlinfw.org"
 
 #endif // USE_AUTOMATIC_VERSIONING
-
-#endif // _VERSION_H_

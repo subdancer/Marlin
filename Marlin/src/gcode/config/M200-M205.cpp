@@ -40,7 +40,7 @@
       // setting any extruder filament size disables volumetric on the assumption that
       // slicers either generate in extruder values as cubic mm or as as filament feeds
       // for all extruders
-      if ( (parser.volumetric_enabled = (parser.value_linear_units() != 0.0)) )
+      if ( (parser.volumetric_enabled = (parser.value_linear_units() != 0)) )
         planner.set_filament_size(target_extruder, parser.value_linear_units());
     }
     planner.calculate_volumetric_multipliers();
@@ -60,7 +60,7 @@ void GcodeSuite::M201() {
   LOOP_XYZE(i) {
     if (parser.seen(axis_codes[i])) {
       const uint8_t a = i + (i == E_AXIS ? TARGET_EXTRUDER : 0);
-      planner.max_acceleration_mm_per_s2[a] = parser.value_axis_units((AxisEnum)a);
+      planner.settings.max_acceleration_mm_per_s2[a] = parser.value_axis_units((AxisEnum)a);
     }
   }
   // steps per sq second need to be updated to agree with the units per sq second (as they are what is used in the planner)
@@ -79,7 +79,7 @@ void GcodeSuite::M203() {
   LOOP_XYZE(i)
     if (parser.seen(axis_codes[i])) {
       const uint8_t a = i + (i == E_AXIS ? TARGET_EXTRUDER : 0);
-      planner.max_feedrate_mm_s[a] = parser.value_axis_units((AxisEnum)a);
+      planner.settings.max_feedrate_mm_s[a] = parser.value_axis_units((AxisEnum)a);
     }
 }
 
@@ -89,45 +89,75 @@ void GcodeSuite::M203() {
  *    P = Printing moves
  *    R = Retract only (no X, Y, Z) moves
  *    T = Travel (non printing) moves
- *
- *  Also sets minimum segment time in ms (B20000) to prevent buffer under-runs and M20 minimum feedrate
  */
 void GcodeSuite::M204() {
-  if (parser.seen('S')) {  // Kept for legacy compatibility. Should NOT BE USED for new developments.
-    planner.travel_acceleration = planner.acceleration = parser.value_linear_units();
-    SERIAL_ECHOLNPAIR("Setting Print and Travel Acceleration: ", planner.acceleration);
+  bool report = true;
+  if (parser.seenval('S')) { // Kept for legacy compatibility. Should NOT BE USED for new developments.
+    planner.settings.travel_acceleration = planner.settings.acceleration = parser.value_linear_units();
+    report = false;
   }
-  if (parser.seen('P')) {
-    planner.acceleration = parser.value_linear_units();
-    SERIAL_ECHOLNPAIR("Setting Print Acceleration: ", planner.acceleration);
+  if (parser.seenval('P')) {
+    planner.settings.acceleration = parser.value_linear_units();
+    report = false;
   }
-  if (parser.seen('R')) {
-    planner.retract_acceleration = parser.value_linear_units();
-    SERIAL_ECHOLNPAIR("Setting Retract Acceleration: ", planner.retract_acceleration);
+  if (parser.seenval('R')) {
+    planner.settings.retract_acceleration = parser.value_linear_units();
+    report = false;
   }
-  if (parser.seen('T')) {
-    planner.travel_acceleration = parser.value_linear_units();
-    SERIAL_ECHOLNPAIR("Setting Travel Acceleration: ", planner.travel_acceleration);
+  if (parser.seenval('T')) {
+    planner.settings.travel_acceleration = parser.value_linear_units();
+    report = false;
+  }
+  if (report) {
+    SERIAL_ECHOPAIR("Acceleration: P", planner.settings.acceleration);
+    SERIAL_ECHOPAIR(" R", planner.settings.retract_acceleration);
+    SERIAL_ECHOLNPAIR(" T", planner.settings.travel_acceleration);
   }
 }
 
 /**
  * M205: Set Advanced Settings
  *
+ *    B = Min Segment Time (µs)
  *    S = Min Feed Rate (units/s)
  *    T = Min Travel Feed Rate (units/s)
- *    B = Min Segment Time (µs)
  *    X = Max X Jerk (units/sec^2)
  *    Y = Max Y Jerk (units/sec^2)
  *    Z = Max Z Jerk (units/sec^2)
  *    E = Max E Jerk (units/sec^2)
+ *    J = Junction Deviation (mm) (Requires JUNCTION_DEVIATION)
  */
 void GcodeSuite::M205() {
-  if (parser.seen('S')) planner.min_feedrate_mm_s = parser.value_linear_units();
-  if (parser.seen('T')) planner.min_travel_feedrate_mm_s = parser.value_linear_units();
-  if (parser.seen('B')) planner.min_segment_time_us = parser.value_ulong();
-  if (parser.seen('X')) planner.max_jerk[X_AXIS] = parser.value_linear_units();
-  if (parser.seen('Y')) planner.max_jerk[Y_AXIS] = parser.value_linear_units();
-  if (parser.seen('Z')) planner.max_jerk[Z_AXIS] = parser.value_linear_units();
-  if (parser.seen('E')) planner.max_jerk[E_AXIS] = parser.value_linear_units();
+  if (parser.seen('B')) planner.settings.min_segment_time_us = parser.value_ulong();
+  if (parser.seen('S')) planner.settings.min_feedrate_mm_s = parser.value_linear_units();
+  if (parser.seen('T')) planner.settings.min_travel_feedrate_mm_s = parser.value_linear_units();
+  #if ENABLED(JUNCTION_DEVIATION)
+    if (parser.seen('J')) {
+      const float junc_dev = parser.value_linear_units();
+      if (WITHIN(junc_dev, 0.01f, 0.3f)) {
+        planner.junction_deviation_mm = junc_dev;
+        #if ENABLED(LIN_ADVANCE)
+          planner.recalculate_max_e_jerk();
+        #endif
+      }
+      else {
+        SERIAL_ERROR_START();
+        SERIAL_ERRORLNPGM("?J out of range (0.01 to 0.3)");
+      }
+    }
+  #endif
+  #if HAS_CLASSIC_JERK
+    if (parser.seen('X')) planner.max_jerk[X_AXIS] = parser.value_linear_units();
+    if (parser.seen('Y')) planner.max_jerk[Y_AXIS] = parser.value_linear_units();
+    if (parser.seen('Z')) {
+      planner.max_jerk[Z_AXIS] = parser.value_linear_units();
+      #if HAS_MESH
+        if (planner.max_jerk[Z_AXIS] <= 0.1f)
+          SERIAL_ECHOLNPGM("WARNING! Low Z Jerk may lead to unwanted pauses.");
+      #endif
+    }
+    #if DISABLED(JUNCTION_DEVIATION) || DISABLED(LIN_ADVANCE)
+      if (parser.seen('E')) planner.max_jerk[E_AXIS] = parser.value_linear_units();
+    #endif
+  #endif
 }

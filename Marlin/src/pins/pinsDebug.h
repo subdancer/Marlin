@@ -39,14 +39,14 @@
 
 #define _ADD_PIN_2(PIN_NAME, ENTRY_NAME) static const char ENTRY_NAME[] PROGMEM = { PIN_NAME };
 #define _ADD_PIN(PIN_NAME, COUNTER) _ADD_PIN_2(PIN_NAME, entry_NAME_##COUNTER)
-#define REPORT_NAME_DIGITAL(NAME, COUNTER) _ADD_PIN(#NAME, COUNTER)
-#define REPORT_NAME_ANALOG(NAME, COUNTER) _ADD_PIN(#NAME, COUNTER)
+#define REPORT_NAME_DIGITAL(COUNTER, NAME) _ADD_PIN(#NAME, COUNTER)
+#define REPORT_NAME_ANALOG(COUNTER, NAME) _ADD_PIN(#NAME, COUNTER)
 
 #include "pinsDebug_list.h"
 #line 47
 
 // manually add pins that have names that are macros which don't play well with these macros
-#if SERIAL_PORT == 0 && (AVR_ATmega2560_FAMILY || AVR_ATmega1284_FAMILY)
+#if SERIAL_PORT == 0 && (AVR_ATmega2560_FAMILY || AVR_ATmega1284_FAMILY || defined(ARDUINO_ARCH_SAM))
   static const char RXD_NAME[] PROGMEM = { "RXD" };
   static const char TXD_NAME[] PROGMEM = { "TXD" };
 #endif
@@ -62,12 +62,12 @@
 
 #define _ADD_PIN_2(ENTRY_NAME, NAME, IS_DIGITAL) { ENTRY_NAME, NAME, IS_DIGITAL },
 #define _ADD_PIN(NAME, COUNTER, IS_DIGITAL) _ADD_PIN_2(entry_NAME_##COUNTER, NAME, IS_DIGITAL)
-#define REPORT_NAME_DIGITAL(NAME, COUNTER) _ADD_PIN(NAME, COUNTER, true)
-#define REPORT_NAME_ANALOG(NAME, COUNTER) _ADD_PIN(analogInputToDigitalPin(NAME), COUNTER, false)
+#define REPORT_NAME_DIGITAL(COUNTER, NAME) _ADD_PIN(NAME, COUNTER, true)
+#define REPORT_NAME_ANALOG(COUNTER, NAME) _ADD_PIN(analogInputToDigitalPin(NAME), COUNTER, false)
 
 
 typedef struct {
-  const char * const name;
+  PGM_P const name;
   pin_t pin;
   bool is_digital;
 } PinInfo;
@@ -85,7 +85,7 @@ const PinInfo pin_array[] PROGMEM = {
 
   // manually add pins ...
   #if SERIAL_PORT == 0
-    #if AVR_ATmega2560_FAMILY
+    #if (AVR_ATmega2560_FAMILY || defined(ARDUINO_ARCH_SAM))
       { RXD_NAME, 0, true },
       { TXD_NAME, 1, true },
     #elif AVR_ATmega1284_FAMILY
@@ -100,13 +100,12 @@ const PinInfo pin_array[] PROGMEM = {
 };
 
 
-#include "../HAL/HAL_pinsDebug.h"  // get the correct support file for this CPU
+#include HAL_PATH(../HAL, pinsDebug.h)  // get the correct support file for this CPU
 
 
 static void print_input_or_output(const bool isout) {
   serialprintPGM(isout ? PSTR("Output = ") : PSTR("Input  = "));
 }
-
 
 // pretty report with PWM info
 inline void report_pin_state_extended(pin_t pin, bool ignore, bool extended = false, const char *start_string = "") {
@@ -130,7 +129,7 @@ inline void report_pin_state_extended(pin_t pin, bool ignore, bool extended = fa
       }
       else {
         SERIAL_CHAR('.');
-        SERIAL_ECHO_SP(26 + strlen(start_string));  // add padding if not the first instance found
+        SERIAL_ECHO_SP(MULTI_NAME_PAD + strlen(start_string));  // add padding if not the first instance found
       }
       PRINT_ARRAY_NAME(x);
       if (extended) {
@@ -151,8 +150,8 @@ inline void report_pin_state_extended(pin_t pin, bool ignore, bool extended = fa
             else
           #endif
           {
-            if (!GET_ARRAY_IS_DIGITAL(pin)) {
-              sprintf_P(buffer, PSTR("Analog in = %5d"), analogRead(DIGITAL_PIN_TO_ANALOG_PIN(pin)));
+            if (!GET_ARRAY_IS_DIGITAL(x)) {
+              sprintf_P(buffer, PSTR("Analog in = %5ld"), analogRead(DIGITAL_PIN_TO_ANALOG_PIN(pin)));
               SERIAL_ECHO(buffer);
             }
             else {
@@ -214,7 +213,7 @@ inline void report_pin_state_extended(pin_t pin, bool ignore, bool extended = fa
         }
         else {
           if (IS_ANALOG(pin)) {
-            sprintf_P(buffer, PSTR("   Analog in = %5d"), analogRead(DIGITAL_PIN_TO_ANALOG_PIN(pin)));
+            sprintf_P(buffer, PSTR("   Analog in = %5ld"), analogRead(DIGITAL_PIN_TO_ANALOG_PIN(pin)));
             SERIAL_ECHO(buffer);
             SERIAL_ECHOPGM("   ");
           }
