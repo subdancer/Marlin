@@ -1,6 +1,6 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (C) 2016 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (C) 2019 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
  * Copyright (C) 2011 Camiel Gubbels / Erik van der Zalm
@@ -41,22 +41,19 @@
  * Copyright (c) 2017 Jason Nelson (xC0000005)
  */
 
-#include "../inc/MarlinConfig.h"
+#include "../inc/MarlinConfigPre.h"
 
 #if ENABLED(MALYAN_LCD)
 
+#include "extensible_ui/ui_api.h"
+
+#include "ultralcd.h"
 #include "../module/temperature.h"
-#include "../module/planner.h"
 #include "../module/stepper.h"
 #include "../module/motion.h"
-#include "../module/probe.h"
 #include "../libs/duration_t.h"
 #include "../module/printcounter.h"
-#include "../gcode/gcode.h"
 #include "../gcode/queue.h"
-#include "../module/configuration_store.h"
-
-#include "../Marlin.h"
 
 #if ENABLED(SDSUPPORT)
   #include "../sd/cardreader.h"
@@ -254,7 +251,7 @@ void process_lcd_p_command(const char* command) {
         quickstop_stepper();
         print_job_timer.stop();
         thermalManager.disable_all_heaters();
-        zero_fan_speeds();
+        thermalManager.zero_fan_speeds();
         wait_for_heatup = false;
         write_to_lcd_P(PSTR("{SYS:STARTED}"));
       #endif
@@ -277,7 +274,7 @@ void process_lcd_p_command(const char* command) {
         // There may be a difference in how V1 and V2 LCDs handle subdirectory
         // prints. Investigate more. This matches the V1 motion controller actions
         // but the V2 LCD switches to "print" mode on {SYS:DIR} response.
-        if (card.filenameIsDir) {
+        if (card.flag.filenameIsDir) {
           card.chdir(card.filename);
           write_to_lcd_P(PSTR("{SYS:DIR}"));
         }
@@ -329,7 +326,7 @@ void process_lcd_s_command(const char* command) {
 
     case 'L': {
       #if ENABLED(SDSUPPORT)
-        if (!card.cardOK) card.initsd();
+        if (!card.isDetected()) card.initsd();
 
         // A more efficient way to do this would be to
         // implement a callback in the ls_SerialPrint code, but
@@ -341,7 +338,7 @@ void process_lcd_s_command(const char* command) {
         uint16_t file_count = card.get_num_Files();
         for (uint16_t i = 0; i < file_count; i++) {
           card.getfilename(i);
-          sprintf_P(message_buffer, card.filenameIsDir ? PSTR("{DIR:%s}") : PSTR("{FILE:%s}"), card.longest_filename());
+          sprintf_P(message_buffer, card.flag.filenameIsDir ? PSTR("{DIR:%s}") : PSTR("{FILE:%s}"), card.longest_filename());
           write_to_lcd(message_buffer);
         }
 
@@ -411,78 +408,94 @@ void update_usb_status(const bool forceUpdate) {
   }
 }
 
-/**
- * - from printer on startup:
- * {SYS:STARTED}{VER:29}{SYS:STARTED}{R:UD}
- * The optimize attribute fixes a register Compile
- * error for amtel.
- */
-void lcd_update() {
-  static char inbound_buffer[MAX_CURLY_COMMAND];
+namespace ExtUI {
+  void onStartup() {
+    /**
+     * The Malyan LCD actually runs as a separate MCU on Serial 1.
+     * This code's job is to siphon the weird curly-brace commands from
+     * it and translate into gcode, which then gets injected into
+     * the command queue where possible.
+     */
+    inbound_count = 0;
+    LCD_SERIAL.begin(500000);
 
-  // First report USB status.
-  update_usb_status(false);
+    // Signal init
+    write_to_lcd_P(PSTR("{SYS:STARTED}\r\n"));
 
-  // now drain commands...
-  while (LCD_SERIAL.available()) {
-    const byte b = (byte)LCD_SERIAL.read() & 0x7F;
-    inbound_buffer[inbound_count++] = b;
-    if (b == '}' || inbound_count == sizeof(inbound_buffer) - 1) {
-      inbound_buffer[inbound_count - 1] = '\0';
-      process_lcd_command(inbound_buffer);
-      inbound_count = 0;
-      inbound_buffer[0] = 0;
-    }
+    // send a version that says "unsupported"
+    write_to_lcd_P(PSTR("{VER:99}\r\n"));
+
+    // No idea why it does this twice.
+    write_to_lcd_P(PSTR("{SYS:STARTED}\r\n"));
+    update_usb_status(true);
   }
 
-  #if ENABLED(SDSUPPORT)
-    // The way last printing status works is simple:
-    // The UI needs to see at least one TQ which is not 100%
-    // and then when the print is complete, one which is.
-    static uint8_t last_percent_done = 100;
+  void onIdle() {
+    /**
+     * - from printer on startup:
+     * {SYS:STARTED}{VER:29}{SYS:STARTED}{R:UD}
+     * The optimize attribute fixes a register Compile
+     * error for amtel.
+     */
+    static char inbound_buffer[MAX_CURLY_COMMAND];
 
-    // If there was a print in progress, we need to emit the final
-    // print status as {TQ:100}. Reset last percent done so a new print will
-    // issue a percent of 0.
-    const uint8_t percent_done = card.sdprinting ? card.percentDone() : last_printing_status ? 100 : 0;
-    if (percent_done != last_percent_done) {
-      char message_buffer[10];
-      sprintf_P(message_buffer, PSTR("{TQ:%03i}"), percent_done);
-      write_to_lcd(message_buffer);
-      last_percent_done = percent_done;
-      last_printing_status = card.sdprinting;
+    // First report USB status.
+    update_usb_status(false);
+
+    // now drain commands...
+    while (LCD_SERIAL.available()) {
+      const byte b = (byte)LCD_SERIAL.read() & 0x7F;
+      inbound_buffer[inbound_count++] = b;
+      if (b == '}' || inbound_count == sizeof(inbound_buffer) - 1) {
+        inbound_buffer[inbound_count - 1] = '\0';
+        process_lcd_command(inbound_buffer);
+        inbound_count = 0;
+        inbound_buffer[0] = 0;
+      }
     }
-  #endif
-}
 
-/**
- * The Malyan LCD actually runs as a separate MCU on Serial 1.
- * This code's job is to siphon the weird curly-brace commands from
- * it and translate into gcode, which then gets injected into
- * the command queue where possible.
- */
-void lcd_init() {
-  inbound_count = 0;
-  LCD_SERIAL.begin(500000);
+    #if ENABLED(SDSUPPORT)
+      // The way last printing status works is simple:
+      // The UI needs to see at least one TQ which is not 100%
+      // and then when the print is complete, one which is.
+      static uint8_t last_percent_done = 100;
 
-  // Signal init
-  write_to_lcd_P(PSTR("{SYS:STARTED}\r\n"));
+      // If there was a print in progress, we need to emit the final
+      // print status as {TQ:100}. Reset last percent done so a new print will
+      // issue a percent of 0.
+      const uint8_t percent_done = IS_SD_PRINTING() ? card.percentDone() : last_printing_status ? 100 : 0;
+      if (percent_done != last_percent_done) {
+        char message_buffer[10];
+        sprintf_P(message_buffer, PSTR("{TQ:%03i}"), percent_done);
+        write_to_lcd(message_buffer);
+        last_percent_done = percent_done;
+        last_printing_status = IS_SD_PRINTING();
+      }
+    #endif
+  }
 
-  // send a version that says "unsupported"
-  write_to_lcd_P(PSTR("{VER:99}\r\n"));
+  void onStatusChanged(const char * const msg) {
+    write_to_lcd_P(PSTR("{E:"));
+    write_to_lcd(msg);
+    write_to_lcd_P("}");
+  }
 
-  // No idea why it does this twice.
-  write_to_lcd_P(PSTR("{SYS:STARTED}\r\n"));
-  update_usb_status(true);
-}
-
-/**
- * Set an alert.
- */
-void lcd_setalertstatusPGM(PGM_P message) {
-  char message_buffer[MAX_CURLY_COMMAND];
-  sprintf_P(message_buffer, PSTR("{E:%s}"), message);
-  write_to_lcd(message_buffer);
+  // Not needed for Malyan LCD
+  void onPrinterKilled(PGM_P const msg) { UNUSED(msg); }
+  void onMediaInserted() {};
+  void onMediaError() {};
+  void onMediaRemoved() {};
+  void onPlayTone(const uint16_t frequency, const uint16_t duration) { UNUSED(frequency); UNUSED(duration); }
+  void onPrintTimerStarted() {}
+  void onPrintTimerPaused() {}
+  void onPrintTimerStopped() {}
+  void onFilamentRunout() {}
+  void onUserConfirmRequired(const char * const msg) { UNUSED(msg); }
+  void onFactoryReset() {}
+  void onStoreSettings(char *buff) { UNUSED(buff); }
+  void onLoadSettings(const char *buff) { UNUSED(buff); }
+  void onConfigurationStoreWritten(bool success) { UNUSED(success); }
+  void onConfigurationStoreRead(bool success) { UNUSED(success); }
 }
 
 #endif // MALYAN_LCD

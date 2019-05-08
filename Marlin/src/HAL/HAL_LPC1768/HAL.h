@@ -1,7 +1,7 @@
 /**
  * Marlin 3D Printer Firmware
  *
- * Copyright (C) 2016 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (C) 2019 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  * Copyright (c) 2016 Bob Cousins bobcousins42@googlemail.com
  * Copyright (c) 2015-2016 Nico Tonnhofer wurstnase.reprap@gmail.com
  *
@@ -19,14 +19,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
+#pragma once
 
 /**
  * HAL_LPC1768/HAL.h
  * Hardware Abstraction Layer for NXP LPC1768
  */
-
-#ifndef _HAL_LPC1768_H_
-#define _HAL_LPC1768_H_
 
 #define CPU_32_BIT
 #define HAL_INIT
@@ -39,17 +37,17 @@ void HAL_init();
 
 extern "C" volatile millis_t _millis;
 
-#include <Arduino.h>
-#include <pinmapping.h>
-#include <CDCSerial.h>
-
+#include "../shared/Marduino.h"
 #include "../shared/math_32bit.h"
 #include "../shared/HAL_SPI.h"
 #include "fastio.h"
-#include <adc.h>
 #include "watchdog.h"
 #include "HAL_timers.h"
 #include "MarlinSerial.h"
+
+#include <adc.h>
+#include <pinmapping.h>
+#include <CDCSerial.h>
 
 //
 // Default graphical display delays
@@ -149,6 +147,9 @@ using FilteredADC = LPC176x::ADC<ADC_LOWPASS_K_VALUE, ADC_MEDIAN_FILTER_SIZE>;
 #define HAL_READ_ADC()         FilteredADC::get_result()
 #define HAL_ADC_READY()        FilteredADC::finished_conversion()
 
+// A grace period to allow ADC readings to stabilize, preventing false alarms
+#define THERMAL_PROTECTION_GRACE_PERIOD 1000
+
 // Parse a G-code word into a pin index
 int16_t PARSED_PIN_INDEX(const char code, const int16_t dval);
 // P0.6 thru P0.9 are for the onboard SD card
@@ -157,4 +158,21 @@ int16_t PARSED_PIN_INDEX(const char code, const int16_t dval);
 #define HAL_IDLETASK 1
 void HAL_idletask(void);
 
-#endif // _HAL_LPC1768_H_
+#define PLATFORM_M997_SUPPORT
+void flashFirmware(int16_t value);
+
+/**
+ * set_pwm_frequency
+ *  Set the frequency of the timer corresponding to the provided pin
+ *  All Hardware PWM pins run at the same frequency and all
+ *  Software PWM pins run at the same frequency
+ */
+void set_pwm_frequency(const pin_t pin, int f_desired);
+
+/**
+ * set_pwm_duty
+ *  Set the PWM duty cycle of the provided pin to the provided value
+ *  Optionally allows inverting the duty cycle [default = false]
+ *  Optionally allows changing the maximum size of the provided value to enable finer PWM duty control [default = 255]
+ */
+void set_pwm_duty(const pin_t pin, const uint16_t v, const uint16_t v_size=255, const bool invert=false);
